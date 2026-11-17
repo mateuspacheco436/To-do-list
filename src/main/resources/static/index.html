@@ -1,0 +1,169 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Minhas Tarefas</title>
+<style>
+:root{--bg:#f4f5f7;--card:#fff;--tx:#1d2330;--mut:#6b7385;--bd:#dfe3ea;--ac:#3b6cf6;--ok:#2e9e5b;--bad:#d64545;--warn:#d98a1c}
+@media (prefers-color-scheme:dark){:root{color-scheme:dark;--bg:#14171d;--card:#1d2129;--tx:#e8ebf1;--mut:#9aa3b5;--bd:#2f3542;--ac:#6f94ff;--ok:#4cc27f;--bad:#f06a6a;--warn:#f0b24a}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--tx);font:16px system-ui,sans-serif}
+main{max-width:640px;margin:0 auto;padding:24px 16px}
+.card{background:var(--card);border:1px solid var(--bd);border-radius:12px;padding:16px;margin-bottom:16px}
+h1{font-size:22px;margin:0 0 16px}input,select,textarea,button{font:inherit;color:inherit}
+input,select,textarea{width:100%;padding:9px 10px;margin-bottom:8px;border:1px solid var(--bd);border-radius:8px;background:var(--bg)}
+button{cursor:pointer;border:1px solid var(--bd);background:var(--card);border-radius:8px;padding:8px 12px}
+button.p{background:var(--ac);border-color:var(--ac);color:#fff}button.on{border-color:var(--ac);color:var(--ac)}
+.row{display:flex;gap:8px}.row>*{flex:1}.bar{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-bottom:12px;flex-wrap:wrap}
+.msg{color:var(--bad);min-height:1.2em;margin:4px 0 8px;font-size:14px}.hide{display:none}
+li{list-style:none;display:flex;gap:10px;align-items:flex-start;padding:10px 0;border-bottom:1px solid var(--bd)}
+ul{margin:0;padding:0}li:last-child{border:0}li input{width:auto;margin:4px 0 0}
+.t{flex:1}.t b{display:block;word-break:break-word}.done b{text-decoration:line-through;color:var(--mut)}
+.d{color:var(--mut);font-size:14px;word-break:break-word}.tag{font-size:12px;border:1px solid var(--bd);border-radius:99px;padding:1px 8px;margin-right:4px}
+.ALTA{color:var(--bad)}.MEDIA{color:var(--warn)}.BAIXA{color:var(--ok)}.late{color:var(--bad)}
+.x{border:0;background:none;padding:4px 6px;color:var(--mut)}.empty{color:var(--mut);text-align:center;padding:16px 0}
+</style>
+</head>
+<body>
+<main>
+<h1>Minhas Tarefas</h1>
+
+<section id="login" class="card">
+  <div class="bar"><div class="row" style="flex:1"><button id="tl" class="on" type="button">Entrar</button><button id="tc" type="button">Cadastrar</button></div></div>
+  <form id="auth">
+    <input id="nome" placeholder="Nome de usuário" required autocomplete="username">
+    <input id="email" type="email" placeholder="E-mail" class="hide" autocomplete="email">
+    <input id="senha" type="password" placeholder="Senha (mínimo 6 caracteres)" required autocomplete="current-password">
+    <div class="msg" id="amsg"></div>
+    <button class="p" style="width:100%" id="go">Entrar</button>
+  </form>
+</section>
+
+<section id="app" class="hide">
+  <div class="bar"><span>Olá, <b id="quem"></b></span><button id="sair" type="button">Sair</button></div>
+  <form id="f" class="card">
+    <input id="titulo" placeholder="Nova tarefa" maxlength="100" required>
+    <textarea id="desc" rows="2" placeholder="Descrição (opcional)" maxlength="500"></textarea>
+    <div class="row">
+      <select id="prio"><option value="BAIXA">Prioridade baixa</option><option value="MEDIA" selected>Prioridade média</option><option value="ALTA">Prioridade alta</option></select>
+      <input id="lim" type="date" title="Data limite">
+    </div>
+    <div class="msg" id="fmsg"></div>
+    <div class="row"><button class="p" id="salvar">Adicionar</button><button type="button" id="cancela" class="hide">Cancelar edição</button></div>
+  </form>
+  <div class="bar"><span id="cont"></span>
+    <div><button data-f="all" class="on">Todas</button> <button data-f="open">Pendentes</button> <button data-f="done">Concluídas</button></div></div>
+  <div class="card"><ul id="lista"></ul></div>
+</section>
+</main>
+
+<script>
+const $=s=>document.querySelector(s),S=localStorage;
+let tasks=[],filtro='all',editId=null,cadastro=false;
+
+function el(t,c,x){const e=document.createElement(t);if(c)e.className=c;if(x!==undefined)e.textContent=x;return e}
+
+async function api(path,method='GET',body,fallback){
+  const h={'Content-Type':'application/json'},tk=S.getItem('token');
+  if(tk)h.Authorization='Bearer '+tk;
+  let r;
+  try{r=await fetch(path,{method,headers:h,body:body?JSON.stringify(body):undefined})}
+  catch{throw new Error('Sem conexão com o servidor.')}
+  if(r.status===401&&tk){sair();throw new Error('Sessão expirada. Entre novamente.')}
+  let d=null;try{d=await r.json()}catch{}
+  if(!r.ok){
+    const campos=d&&d.campos?Object.values(d.campos).join(' '):'';
+    throw new Error(d&&d.erro?d.erro+(campos?': '+campos:''):fallback||'Erro '+r.status);
+  }
+  return d;
+}
+
+/* ---------- login / cadastro ---------- */
+function modo(c){
+  cadastro=c;$('#email').classList.toggle('hide',!c);$('#email').required=c;
+  $('#tl').classList.toggle('on',!c);$('#tc').classList.toggle('on',c);
+  $('#go').textContent=c?'Cadastrar e entrar':'Entrar';$('#amsg').textContent='';
+}
+$('#tl').onclick=()=>modo(false);$('#tc').onclick=()=>modo(true);
+
+$('#auth').onsubmit=async e=>{
+  e.preventDefault();$('#amsg').textContent='';
+  const nome=$('#nome').value.trim(),senha=$('#senha').value;
+  try{
+    if(cadastro)await api('/auth/register','POST',{nome,senha,email:$('#email').value.trim()},'Não foi possível cadastrar (o nome já existe?).');
+    const d=await api('/auth/login','POST',{nome,senha});
+    S.setItem('token',d.token);S.setItem('nome',nome);$('#senha').value='';entrar();
+  }catch(err){$('#amsg').textContent=err.message}
+};
+
+function entrar(){
+  $('#login').classList.add('hide');$('#app').classList.remove('hide');
+  $('#quem').textContent=S.getItem('nome')||'';carregar();
+}
+function sair(){
+  S.removeItem('token');S.removeItem('nome');tasks=[];
+  $('#app').classList.add('hide');$('#login').classList.remove('hide');
+}
+$('#sair').onclick=sair;
+
+/* ---------- tarefas ---------- */
+async function carregar(){
+  try{tasks=await api('/V1/tasks');render()}catch(err){$('#fmsg').textContent=err.message}
+}
+
+function dataBR(iso){const [a,m,d]=iso.split('-');return d+'/'+m+'/'+a}
+
+function render(){
+  const hoje=new Date().toLocaleDateString('en-CA');
+  const lista=$('#lista');lista.replaceChildren();
+  const vis=tasks.filter(t=>filtro==='all'||(filtro==='done')===t.concluida);
+  const pend=tasks.filter(t=>!t.concluida).length;
+  $('#cont').textContent=pend+(pend===1?' pendente':' pendentes');
+  if(!vis.length)lista.append(el('div','empty','Nenhuma tarefa por aqui.'));
+  for(const t of vis){
+    const li=el('li',t.concluida?'done':'');
+    const ck=el('input');ck.type='checkbox';ck.checked=t.concluida;ck.onchange=()=>acao(()=>api('/V1/tasks/'+t.id+'/toggle','PATCH'));
+    const box=el('div','t');box.append(el('b','',t.titulo));
+    if(t.descricao)box.append(el('div','d',t.descricao));
+    const meta=el('div','d');
+    meta.append(el('span','tag '+t.prioridade,t.prioridade.toLowerCase()));
+    if(t.dataLimite)meta.append(el('span',!t.concluida&&t.dataLimite<hoje?'late':'','Até '+dataBR(t.dataLimite)));
+    box.append(meta);
+    const ed=el('button','x','Editar');ed.onclick=()=>editar(t);
+    const rm=el('button','x','Excluir');rm.onclick=()=>{if(confirm('Excluir esta tarefa?'))acao(()=>api('/V1/tasks/'+t.id,'DELETE'))};
+    li.append(ck,box,ed,rm);lista.append(li);
+  }
+}
+
+async function acao(fn){
+  try{await fn();await carregar()}catch(err){$('#fmsg').textContent=err.message}
+}
+
+function editar(t){
+  editId=t.id;$('#titulo').value=t.titulo;$('#desc').value=t.descricao||'';
+  $('#prio').value=t.prioridade;$('#lim').value=t.dataLimite||'';
+  $('#salvar').textContent='Salvar';$('#cancela').classList.remove('hide');$('#titulo').focus();
+}
+function limpar(){
+  editId=null;$('#f').reset();$('#prio').value='MEDIA';
+  $('#salvar').textContent='Adicionar';$('#cancela').classList.add('hide');$('#fmsg').textContent='';
+}
+$('#cancela').onclick=limpar;
+
+$('#f').onsubmit=async e=>{
+  e.preventDefault();$('#fmsg').textContent='';
+  const body={titulo:$('#titulo').value.trim(),descricao:$('#desc').value.trim()||null,prioridade:$('#prio').value,dataLimite:$('#lim').value||null};
+  try{
+    await (editId?api('/V1/tasks/'+editId,'PUT',body):api('/V1/tasks','POST',body));
+    limpar();await carregar();
+  }catch(err){$('#fmsg').textContent=err.message}
+};
+
+document.querySelectorAll('[data-f]').forEach(b=>b.onclick=()=>{
+  filtro=b.dataset.f;document.querySelectorAll('[data-f]').forEach(x=>x.classList.toggle('on',x===b));render();
+});
+
+if(S.getItem('token'))entrar();
+</script>
+</body>
+</html>
